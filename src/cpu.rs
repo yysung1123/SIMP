@@ -13,6 +13,7 @@ pub struct Cpu {
     pub regs: [u32; 32],
     pub pc: u32,
     pub bus: Bus,
+    pc_branch_delay: Option<u32>,
 }
 
 impl Cpu {
@@ -23,6 +24,7 @@ impl Cpu {
             regs: regs,
             pc: BOOT_EXCEPTION_VECTOR,
             bus: Bus::new(binary),
+            pc_branch_delay: None,
         }
     }
 
@@ -93,6 +95,7 @@ impl Cpu {
         let rs = ((inst & 0x03e00000) >> 21) as usize;
         let rt = ((inst & 0x001f0000) >> 16) as usize;
         let rd = ((inst & 0x0000f800) >> 11) as usize;
+        let mut is_branch = false;
 
         self.regs[0] = 0;
 
@@ -105,7 +108,8 @@ impl Cpu {
                     }
                     0x08 => {
                         // jr
-                        self.pc = self.regs[rs];
+                        is_branch = true;
+                        self.pc_branch_delay = Some(self.regs[rs]);
                     }
                     0x21 => {
                         // addu
@@ -127,22 +131,25 @@ impl Cpu {
             }
             0x03 => {
                 // jal
+                is_branch = true;
                 self.regs[31] = self.pc.wrapping_add(4);
                 let target = inst & 0x03ffffff;
-                self.pc = (self.pc & 0xf0000000) | (target << 2);
+                self.pc_branch_delay = Some((self.pc & 0xf0000000) | (target << 2));
             }
             0x04 => {
                 // beq
+                is_branch = true;
                 let offset = ((inst & 0x0000ffff) as i16) as u32;
                 if self.regs[rs] == self.regs[rt] {
-                    self.pc = self.pc.wrapping_add(offset << 2);
+                    self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                 }
             }
             0x05 => {
                 // bne
+                is_branch = true;
                 let offset = ((inst & 0x0000ffff) as i16) as u32;
                 if self.regs[rs] != self.regs[rt] {
-                    self.pc = self.pc.wrapping_add(offset << 2);
+                    self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                 }
             }
             0x09 => {
@@ -173,6 +180,18 @@ impl Cpu {
             _ => {
                 dbg!(format!("not implemented yet: opcode {:#x}", opcode));
                 return Err(());
+            }
+        }
+
+        // assume there's not branch instruction in branch delay slot
+        if !is_branch {
+            match self.pc_branch_delay {
+                Some(pc) => {
+                    // current instruction is in branch delay slot
+                    self.pc = pc;
+                    self.pc_branch_delay = None;
+                }
+                None => {}
             }
         }
 
