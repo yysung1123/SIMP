@@ -14,6 +14,8 @@ pub struct Cpu {
     pub pc: u32,
     pub bus: Bus,
     pc_branch_delay: Option<u32>,
+    pub hi: u32,
+    pub lo: u32,
 }
 
 impl Cpu {
@@ -25,6 +27,8 @@ impl Cpu {
             pc: BOOT_EXCEPTION_VECTOR,
             bus: Bus::new(binary),
             pc_branch_delay: None,
+            hi: 0u32,
+            lo: 0u32,
         }
     }
 
@@ -105,11 +109,84 @@ impl Cpu {
                 match funct {
                     0x00 => {
                         // noop
+                        // sll
+                        let shamt = (inst & 0x000007c0) >> 6;
+                        self.regs[rd] = self.regs[rt].wrapping_shl(shamt);
+                    }
+                    0x02 => {
+                        //srl
+                        let shamt = (inst & 0x000007c0) >> 6;
+                        self.regs[rd] = self.regs[rt].wrapping_shr(shamt);
+                    }
+                    0x03 => {
+                        // sra
+                        let shamt = (inst & 0x000007c0) >> 6;
+                        self.regs[rd] = (self.regs[rt] as i32).wrapping_shr(shamt) as u32;
+                    }
+                    0x04 => {
+                        // sllv
+                        self.regs[rd] = self.regs[rt].wrapping_shl(self.regs[rs]);
+                    }
+                    0x06 => {
+                        // srlv
+                        self.regs[rd] = self.regs[rt].wrapping_shr(self.regs[rs]);
+                    }
+                    0x07 => {
+                        // srav
+                        self.regs[rd] = (self.regs[rt] as i32).wrapping_shr(self.regs[rs]) as u32;
                     }
                     0x08 => {
                         // jr
                         is_branch = true;
                         self.pc_branch_delay = Some(self.regs[rs]);
+                    }
+                    0x0d => {
+                        // break
+                        // TODO: excpetion handling
+                    }
+                    0x10 => {
+                        // mfhi
+                        self.regs[rd] = self.hi;
+                    }
+                    0x11 => {
+                        // mthi
+                        self.hi = self.regs[rs];
+                    }
+                    0x12 => {
+                        // mflo
+                        self.regs[rd] = self.lo;
+                    }
+                    0x13 => {
+                        // mtlo
+                        self.lo = self.regs[rs];
+                    }
+                    0x18 => {
+                        // mult
+                        let product = ((self.regs[rs] as i32) as i64).wrapping_mul((self.regs[rt] as i32) as i64) as u64;
+                        self.hi = (product >> 32) as u32;
+                        self.lo = product as u32;
+                    }
+                    0x19 => {
+                        // multu
+                        let product = (self.regs[rs] as u64).wrapping_mul(self.regs[rt] as u64);
+                        self.hi = (product >> 32) as u32;
+                        self.lo = product as u32;
+                    }
+                    0x1a => {
+                        // div
+                        // If the divisor in GPRrt is zero, the arithmetic result value is undefined.
+                        if self.regs[rt] != 0 {
+                            self.lo = (self.regs[rs] as i32).wrapping_div(self.regs[rt] as i32) as u32;
+                            self.hi = (self.regs[rs] as i32).wrapping_rem(self.regs[rt] as i32) as u32;
+                        }
+                    }
+                    0x1b => {
+                        // divu
+                        // If the divisor in GPRrt is zero, the arithmetic result value is undefined.
+                        if self.regs[rt] != 0 {
+                            self.lo = self.regs[rs].wrapping_div(self.regs[rt]);
+                            self.hi = self.regs[rs].wrapping_rem(self.regs[rt]);
+                        }
                     }
                     0x21 => {
                         // addu
@@ -119,15 +196,87 @@ impl Cpu {
                         // subu
                         self.regs[rd] = self.regs[rs].wrapping_sub(self.regs[rt]);
                     }
+                    0x24 => {
+                        // and
+                        self.regs[rd] = self.regs[rs] & self.regs[rt];
+                    }
                     0x25 => {
                         // or
                         self.regs[rd] = self.regs[rs] | self.regs[rt];
+                    }
+                    0x26 => {
+                        // xor
+                        self.regs[rd] = self.regs[rs] ^ self.regs[rt];
+                    }
+                    0x27 => {
+                        // nor
+                        self.regs[rd] = !(self.regs[rs] | self.regs[rt]);
+                    }
+                    0x2a => {
+                        // slt
+                        if (self.regs[rs] as i32) < (self.regs[rt] as i32) {
+                            self.regs[rd] = 1u32;
+                        } else {
+                            self.regs[rd] = 0u32;
+                        }
+                    }
+                    0x2b => {
+                        // sltu
+                        if self.regs[rs] < self.regs[rt] {
+                            self.regs[rd] = 1u32;
+                        } else {
+                            self.regs[rd] = 0u32;
+                        }
                     }
                     _ => {
                         dbg!(format!("not implemented yet: opcode {:#x} funct {:#x}", opcode, funct));
                         return Err(());
                     }
                 }
+            }
+            0x01 => {
+                let funct = rt;
+                match funct {
+                    0x00 => {
+                        // bltz
+                        let offset = ((inst & 0x0000ffff) as i16) as u32;
+                        if (self.regs[rs] as i32) < 0 {
+                            self.pc = self.pc.wrapping_add(offset << 2);
+                        }
+                    }
+                    0x01 => {
+                        // bgez
+                        let offset = ((inst & 0x0000ffff) as i16) as u32;
+                        if (self.regs[rs] as i32) >= 0 {
+                            self.pc = self.pc.wrapping_add(offset << 2);
+                        }
+                    }
+                    0x10 => {
+                        // bltzal
+                        let offset = ((inst & 0x0000ffff) as i16) as u32;
+                        if (self.regs[rs] as i32) < 0 {
+                            self.regs[31] = self.pc.wrapping_add(4);
+                            self.pc = self.pc.wrapping_add(offset << 2);
+                        }
+                    }
+                    0x11 => {
+                        // bgezal
+                        let offset = ((inst & 0x0000ffff) as i16) as u32;
+                        if (self.regs[rs] as i32) >= 0 {
+                            self.regs[31] = self.pc.wrapping_add(4);
+                            self.pc = self.pc.wrapping_add(offset << 2);
+                        }
+                    }
+                    _ => {
+                        dbg!(format!("not implemented yet: opcode {:#x} funct {:#x}", opcode, funct));
+                        return Err(());
+                    }
+                }
+            }
+            0x02 => {
+                // j
+                let target = inst & 0x03ffffff;
+                self.pc = (self.pc & 0xf0000000) | (target << 2);
             }
             0x03 => {
                 // jal
@@ -152,25 +301,113 @@ impl Cpu {
                     self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                 }
             }
+            0x06 => {
+                // blez
+                let offset = ((inst & 0x0000ffff) as i16) as u32;
+                if (self.regs[rs] as i32) <= 0 {
+                    self.pc = self.pc.wrapping_add(offset << 2);
+                }
+            }
+            0x07 => {
+                // bgtz
+                let offset = ((inst & 0x0000ffff) as i16) as u32;
+                if (self.regs[rs] as i32) > 0 {
+                    self.pc = self.pc.wrapping_add(offset << 2);
+                }
+            }
             0x09 => {
                 // addiu
                 let imm = ((inst & 0x0000ffff) as i16) as u32;
                 self.regs[rt] = self.regs[rs].wrapping_add(imm);
+            }
+            0x0a => {
+                // slti
+                let imm = ((inst & 0x0000ffff) as i16) as i32;
+                if (self.regs[rs] as i32) < imm {
+                    self.regs[rt] = 1u32;
+                } else {
+                    self.regs[rt] = 0u32;
+                }
+            }
+            0x0b => {
+                // sltiu
+                let imm = inst & 0x0000ffff;
+                if self.regs[rs] < imm {
+                    self.regs[rt] = 1u32;
+                } else {
+                    self.regs[rt] = 0u32;
+                }
+            }
+            0x0c => {
+                // andi
+                let imm = inst & 0x0000ffff;
+                self.regs[rt] = self.regs[rs] & imm;
             }
             0x0d => {
                 // ori
                 let imm = inst & 0x0000ffff;
                 self.regs[rt] = self.regs[rs] | imm;
             }
+            0x0e => {
+                // xori
+                let imm = inst & 0x0000ffff;
+                self.regs[rt] = self.regs[rs] ^ imm;
+            }
             0x0f => {
                 // lui
                 let imm = inst & 0x0000ffff;
                 self.regs[rt] = imm << 16;
             }
+            0x1c => {
+                let funct = inst & 0x0000003f;
+                match funct {
+                    0x0 => {
+                        // madd
+                        let product = ((self.regs[rs] as i32) as i64).wrapping_mul((self.regs[rt] as i32) as i64) as u64;
+                        let acc = product.wrapping_add((self.hi as u64).wrapping_shl(32) + self.lo as u64);
+                        self.hi = (acc >> 32) as u32;
+                        self.lo = acc as u32;
+                    }
+                    0x1 => {
+                        // maddu
+                        let product = (self.regs[rs] as u64).wrapping_mul(self.regs[rt] as u64);
+                        let acc = product.wrapping_add((self.hi as u64).wrapping_shl(32) + self.lo as u64);
+                        self.hi = (acc >> 32) as u32;
+                        self.lo = acc as u32;
+                    }
+                    0x2 => {
+                        // mul
+                        self.regs[rd] = ((self.regs[rs] as i64).wrapping_mul(self.regs[rt] as i64)) as u32;
+                    }
+                    0x20 => {
+                        // clz
+                        self.regs[rt] = self.regs[rs].leading_zeros();
+                    }
+                    0x21 => {
+                        // clo
+                        self.regs[rt] = self.regs[rs].leading_ones();
+                    }
+                    _ => {
+                        dbg!(format!("not implemented yet: opcode {:#x} funct {:#x}", opcode, funct));
+                        return Err(());
+                    }
+                }
+
+            }
+            0x20 => {
+                // lb
+                let imm = ((inst & 0x0000ffff) as i16) as u32;
+                self.regs[rt] = self.load(self.regs[rs].wrapping_add(imm), 8)?
+            }
             0x23 => {
                 // lw
                 let imm = ((inst & 0x0000ffff) as i16) as u32;
                 self.regs[rt] = self.load(self.regs[rs].wrapping_add(imm), 32)?
+            }
+            0x28 => {
+                // sb
+                let imm = ((inst & 0x0000ffff) as i16) as u32;
+                self.store(self.regs[rs].wrapping_add(imm), 8, self.regs[rt])?
             }
             0x2b => {
                 // sw

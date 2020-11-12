@@ -19,3 +19,9 @@ fibonacci
 $ make -C mips-examples/fib
 $ cargo run mips-examples/fib/fib.bin
 ```
+
+instruction test
+```
+$ make -C mips-examples/inst-test
+$ cargo run mips-examples/inst-test/inst-test.bin
+```
