@@ -239,32 +239,36 @@ impl Cpu {
                 match funct {
                     0x00 => {
                         // bltz
+                        is_branch = true;
                         let offset = ((inst & 0x0000ffff) as i16) as u32;
                         if (self.regs[rs] as i32) < 0 {
-                            self.pc = self.pc.wrapping_add(offset << 2);
+                            self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                         }
                     }
                     0x01 => {
                         // bgez
+                        is_branch = true;
                         let offset = ((inst & 0x0000ffff) as i16) as u32;
                         if (self.regs[rs] as i32) >= 0 {
-                            self.pc = self.pc.wrapping_add(offset << 2);
+                            self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                         }
                     }
                     0x10 => {
                         // bltzal
+                        is_branch = true;
                         let offset = ((inst & 0x0000ffff) as i16) as u32;
                         if (self.regs[rs] as i32) < 0 {
                             self.regs[31] = self.pc.wrapping_add(4);
-                            self.pc = self.pc.wrapping_add(offset << 2);
+                            self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                         }
                     }
                     0x11 => {
                         // bgezal
+                        is_branch = true;
                         let offset = ((inst & 0x0000ffff) as i16) as u32;
                         if (self.regs[rs] as i32) >= 0 {
                             self.regs[31] = self.pc.wrapping_add(4);
-                            self.pc = self.pc.wrapping_add(offset << 2);
+                            self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                         }
                     }
                     _ => {
@@ -275,8 +279,9 @@ impl Cpu {
             }
             0x02 => {
                 // j
+                is_branch = true;
                 let target = inst & 0x03ffffff;
-                self.pc = (self.pc & 0xf0000000) | (target << 2);
+                self.pc_branch_delay = Some((self.pc & 0xf0000000) | (target << 2));
             }
             0x03 => {
                 // jal
@@ -303,16 +308,18 @@ impl Cpu {
             }
             0x06 => {
                 // blez
+                is_branch = true;
                 let offset = ((inst & 0x0000ffff) as i16) as u32;
                 if (self.regs[rs] as i32) <= 0 {
-                    self.pc = self.pc.wrapping_add(offset << 2);
+                    self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                 }
             }
             0x07 => {
                 // bgtz
+                is_branch = true;
                 let offset = ((inst & 0x0000ffff) as i16) as u32;
                 if (self.regs[rs] as i32) > 0 {
-                    self.pc = self.pc.wrapping_add(offset << 2);
+                    self.pc_branch_delay = Some(self.pc.wrapping_add(offset << 2));
                 }
             }
             0x09 => {
