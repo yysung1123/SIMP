@@ -140,6 +140,12 @@ impl Cpu {
                         is_branch = true;
                         self.pc_branch_delay = Some(self.regs[rs]);
                     }
+                    0x09 => {
+                        // jalr
+                        is_branch = true;
+                        self.regs[rd] = self.pc.wrapping_add(4);
+                        self.pc_branch_delay = Some(self.regs[rs]);
+                    }
                     0x0d => {
                         // break
                         // TODO: excpetion handling
